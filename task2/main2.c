@@ -4,11 +4,11 @@
 #include <time.h>
 #include <math.h>
 
-#define MAX_NUM 10000
+#define MAX_NUM 10
 
 void GenerateMatrix(int *matrix, int rows, int cols) {
     for (int i = 0; i < rows * cols; i++) {
-        matrix[i] = rand() % MAX_NUM;
+        matrix[i] = rand() % (MAX_NUM + 1);
     }
 }
 
@@ -61,6 +61,12 @@ int main() {
         matrix = calloc(n * m, sizeof(int));
         GenerateMatrix(matrix, n, m);
         GenerateMatrix(vector, 1, m);
+
+        // printf("Матрица: \n");
+        // PrintMatrix(matrix, n, m);
+        // printf("Вектор: \n");
+        // PrintMatrix(vector, 1, m);
+
         TransposeMatrix(matrix, n, m);
     }
 
@@ -99,8 +105,7 @@ int main() {
 
     int local_offset = 0;
     for (int i = 0; i < my_rank; ++i) {
-        local_offset++;
-        local_offset += (i < remainder);
+        local_offset += cols_per_process + (i < remainder);
     }
     
     int *local_res = calloc(n, sizeof(int));
@@ -129,6 +134,9 @@ int main() {
     double time = end - start;
     if (my_rank == 0) {
         printf("Время исполнения: %lf мс\n", time * 1000);
+
+        // printf("Итоговый вектор: \n");
+        // PrintMatrix(global_res, 1, n);
 
         free(global_res);
         free(sendcounts);
