@@ -31,6 +31,19 @@ void InputMatrix(int my_rank, int *n, int *m) {
     MPI_Bcast(m, 1, MPI_INT, 0, MPI_COMM_WORLD);
 }
 
+void TransposeMatrix(int *matrix, int n, int m) {
+    int *tr = calloc(m * n, sizeof(int));
+    for (int i = 0; i < n; ++i) {
+        for (int j = 0; j < m; ++j) {
+            tr[j * n + i] = matrix[i * m + j];
+        }
+    }
+
+    for (int i = 0; i < m * n; ++i) {
+        matrix[i] = tr[i];
+    }
+}
+
 int main() {
     MPI_Init(NULL, NULL);
 
@@ -48,6 +61,7 @@ int main() {
         matrix = calloc(n * m, sizeof(int));
         GenerateMatrix(matrix, n, m);
         GenerateMatrix(vector, 1, m);
+        TransposeMatrix(matrix, n, m);
     }
 
     // Начало замера времени - момент, когда матрица и вектор сгенерированы
@@ -55,59 +69,58 @@ int main() {
     double start = MPI_Wtime();
 
     MPI_Bcast(vector, m, MPI_INT, 0, MPI_COMM_WORLD);
-    
-    int rows_per_process = n / comm_sz;
-    int remainder = n % comm_sz;
+
+    int cols_per_process = m / comm_sz;
+    int remainder = m % comm_sz;
 
     int *sendcounts = NULL, *displs = NULL;
     if (my_rank == 0) {
         sendcounts = calloc(comm_sz, sizeof(int));
         displs = calloc(comm_sz, sizeof(int));
         for (int i = 0; i < comm_sz; ++i) {
-            sendcounts[i] = (rows_per_process + (i < remainder)) * m;
+            sendcounts[i] = (cols_per_process + (i < remainder)) * n;
             displs[i] = (i ? displs[i - 1] : 0) + (i ? sendcounts[i - 1] : 0);
         }
     }
 
-    int local_n = rows_per_process + (my_rank < remainder);
-    int* local_matrix = calloc(local_n * m, sizeof(int));
+    int local_m = cols_per_process + (my_rank < remainder);
+    int* local_matrix = calloc(local_m * n, sizeof(int));
     MPI_Scatterv(
         matrix,
         sendcounts,
         displs,
         MPI_INT,
         local_matrix,
-        local_n * m,
+        local_m * n,
         MPI_INT,
         0,
         MPI_COMM_WORLD
     );
+
+    int local_offset = 0;
+    for (int i = 0; i < my_rank; ++i) {
+        local_offset++;
+        local_offset += (i < remainder);
+    }
     
-    int *local_res = calloc(local_n, sizeof(int));
-    for (int i = 0; i < local_n; ++i) {
-        local_res[i] = 0;
-        for (int j = 0; j < m; ++j) {
-            local_res[i] += local_matrix[i * m + j] * vector[j];
+    int *local_res = calloc(n, sizeof(int));
+    for (int i = 0; i < local_m; ++i) {
+        for (int j = 0; j < n; ++j) {
+            local_res[j] += local_matrix[i * n + j] * vector[i + local_offset];
         }
     }
 
     int *global_res = NULL;
     if (my_rank == 0) {
         global_res = calloc(n, sizeof(int));
-        for (int i = 0; i < comm_sz; ++i) {
-            sendcounts[i] = rows_per_process + (i < remainder);
-            displs[i] = (i ? displs[i - 1] : 0) + (i ? sendcounts[i - 1] : 0); 
-        }
     }
 
-    MPI_Gatherv(
-        local_res,
-        local_n,
-        MPI_INT,
+    MPI_Reduce(
+        local_res, 
         global_res,
-        sendcounts,
-        displs,
+        n,
         MPI_INT,
+        MPI_SUM,
         0,
         MPI_COMM_WORLD
     );
